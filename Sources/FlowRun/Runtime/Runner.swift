@@ -1,6 +1,8 @@
 import Foundation
 
+/// A live handle for an asynchronously executing workflow run.
 public struct RunHandle<Output: Codable & Sendable>: Sendable {
+    /// The persistent identifier of this run.
     public let id: RunID
     private let task: Task<Output, Error>
 
@@ -9,6 +11,7 @@ public struct RunHandle<Output: Codable & Sendable>: Sendable {
         self.task = task
     }
 
+    /// Waits for the run to succeed or throw its terminal live error.
     public func value() async throws -> Output { try await task.value }
 
     /// Requests cancellation. Await value() before resuming to observe the suspended state.
@@ -17,11 +20,17 @@ public struct RunHandle<Output: Codable & Sendable>: Sendable {
 
 /// The one workflow runner in this process. Configure it once at startup.
 public actor Runner {
+    /// The runner shared by this process.
     public static let shared = Runner()
     private var engine: RunEngine?
 
     private init() {}
 
+    /// Configures the process-wide runner exactly once.
+    ///
+    /// Call this during application startup, before any other runner operation.
+    /// `heartbeatInterval` must be positive; a second call throws
+    /// ``FlowRunError/runnerAlreadyConfigured``.
     public func configure(
         persistence: any WorkflowPersistence,
         heartbeatInterval: Duration = .seconds(10)
@@ -31,6 +40,10 @@ public actor Runner {
         engine = RunEngine(persistence: persistence, heartbeatInterval: heartbeatInterval)
     }
 
+    /// Persists and begins a new run of `workflow`.
+    ///
+    /// The workflow input is encoded and decoded before execution. Independent
+    /// runs can execute concurrently; steps within this run remain serial.
     @discardableResult
     public func start<W: Workflow>(
         _ workflow: W, input: W.Input, id: RunID = RunID()
@@ -38,20 +51,32 @@ public actor Runner {
         try await configuredEngine().start(workflow, input: input, id: id)
     }
 
+    /// Claims a suspended run and starts its workflow body again from its saved input.
+    ///
+    /// Completed steps replay their saved outputs. The workflow identifier must
+    /// match the persisted run, and the run must be suspended.
     @discardableResult
     public func resume<W: Workflow>(_ workflow: W, id: RunID) async throws -> RunHandle<W.Output> {
         try await configuredEngine().resume(workflow, id: id)
     }
 
+    /// Returns portable status and step diagnostics for a persisted run, if present.
     public func snapshot(id: RunID) async throws -> RunSnapshot? {
         try await configuredEngine().snapshot(id: id)
     }
 
+    /// Reads and decodes the successful final output for a matching workflow type.
+    ///
+    /// Returns `nil` when the run is missing or has not succeeded. A mismatched
+    /// workflow identifier or incompatible output bytes throw a ``FlowRunError``.
     public func output<W: Workflow>(for workflow: W.Type, id: RunID) async throws -> W.Output? {
         try await configuredEngine().output(for: workflow, id: id)
     }
 
     /// Explicitly marks overdue running runs as terminally timed out.
+    ///
+    /// FlowRun does not sweep automatically. Choose a positive threshold longer
+    /// than the heartbeat interval and act on the returned terminal run IDs.
     public func timeoutStaleRuns(olderThan seconds: TimeInterval) async throws -> [RunID] {
         try await configuredEngine().timeoutStaleRuns(olderThan: seconds)
     }

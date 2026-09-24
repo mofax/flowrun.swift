@@ -2,6 +2,12 @@
 
 FlowRun runs sequential Swift workflows with persisted step checkpoints, retries, cancellation, and run snapshots. A completed step returns its saved output during replay, so its operation is not repeated.
 
+FlowRun is a good fit for durable, multi-step application work such as order processing, provisioning, or data imports. It is not an exactly-once delivery system: an external effect can run more than once, so effecting steps must use idempotency keys.
+
+## Documentation
+
+The in-package DocC documentation covers the [mental model](Sources/FlowRun/FlowRun.docc/FlowRun-Mental-Model.md), [replay and data compatibility](Sources/FlowRun/FlowRun.docc/Checkpointing-and-Replay.md), [run operations](Sources/FlowRun/FlowRun.docc/Operating-FlowRun.md), and [custom persistence](Sources/FlowRun/FlowRun.docc/Custom-Persistence.md). Start with the [resumable order workflow tutorial](Sources/FlowRun/FlowRun.docc/Build-a-Resumable-Order-Workflow.md) for a complete example.
+
 ## Requirements
 
 - Swift 6.3 or later
@@ -105,3 +111,5 @@ Retried steps can execute an external effect **more than once**. A process can s
 ## Development
 
 Run `swift test` from the package directory.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test-suite conventions, documentation expectations, and compatibility requirements. See [CHANGELOG.md](CHANGELOG.md) for release notes.

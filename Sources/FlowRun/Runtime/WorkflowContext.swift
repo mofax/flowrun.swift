@@ -2,6 +2,7 @@ import Foundation
 
 /// Performs serial, checkpointed steps within one workflow run.
 public actor WorkflowContext {
+    /// The persistent ID of the workflow run that owns this context.
     public nonisolated let runID: RunID
     private let generation: UInt64
     private let persistence: any WorkflowPersistence
@@ -27,6 +28,10 @@ public actor WorkflowContext {
     }
 
     /// Use for bounded synchronous work. Blocking I/O should use the async overload.
+    ///
+    /// A completed checkpoint with the same next ID returns its persisted value.
+    /// The operation may execute more than once after interruption, so external
+    /// effects must be idempotent. Steps in one context may not overlap.
     public func step<Value: Codable & Sendable>(
         id: String,
         retry: RetryPolicy = .none,
@@ -35,6 +40,10 @@ public actor WorkflowContext {
         try await performStep(id: id, retry: retry) { try operation() }
     }
 
+    /// Performs asynchronous checkpointed work.
+    ///
+    /// Use this overload for suspending work such as network or database I/O.
+    /// Retry attempts and completed outputs are persisted before this call returns.
     public func step<Value: Codable & Sendable>(
         id: String,
         retry: RetryPolicy = .none,

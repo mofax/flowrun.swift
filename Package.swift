@@ -7,6 +7,9 @@ let package = Package(
     products: [
         .library(name: "FlowRun", targets: ["FlowRun"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0")
+    ],
     targets: [
         .target(name: "FlowRun", linkerSettings: [.linkedLibrary("sqlite3")]),
         .testTarget(name: "FlowRunTests", dependencies: ["FlowRun"])

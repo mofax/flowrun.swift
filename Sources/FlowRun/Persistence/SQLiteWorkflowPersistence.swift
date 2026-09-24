@@ -12,6 +12,10 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
     private let connection: SQLiteConnection
     private var database: OpaquePointer { connection.pointer }
 
+    /// Opens or creates a SQLite-backed store at a file URL.
+    ///
+    /// The URL must identify a file in an existing directory. The store enables
+    /// WAL mode and may be opened by separate instances or processes.
     public init(url: URL) throws {
         guard url.isFileURL else { throw FlowRunError.persistenceFailed("SQLite requires a file URL") }
         var pointer: OpaquePointer?
@@ -65,6 +69,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         connection = SQLiteConnection(pointer)
     }
 
+    /// Atomically stores a new run in SQLite.
     public func createRun(_ record: RunRecord) throws -> RunRecord {
         try transaction {
             guard !(try exists(id: record.id)) else { throw FlowRunError.runAlreadyExists(record.id) }
@@ -74,8 +79,10 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Loads a complete SQLite run record, including persisted payloads.
     public func loadRun(id: RunID) throws -> RunRecord? { try load(id: id, includePayloads: true) }
 
+    /// Atomically claims a suspended matching run and advances its owner generation.
     public func claimSuspendedRun(id: RunID, workflowID: String) throws -> RunRecord {
         try transaction {
             guard var record = try load(id: id, includePayloads: false) else {
@@ -90,6 +97,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Updates the heartbeat for a currently authorized owner.
     public func heartbeat(runID: RunID, generation: UInt64) throws {
         try transaction {
             guard var record = try load(id: runID, includePayloads: false) else {
@@ -100,6 +108,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Marks every running record at or before the cutoff as terminally timed out.
     public func timeoutStaleRuns(before cutoff: Date) throws -> [RunID] {
         try transaction {
             let statement = try prepare("SELECT id FROM runs WHERE status = ? AND heartbeat_at <= ?")
@@ -131,6 +140,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Atomically starts a new or interrupted checkpoint.
     public func startStep(runID: RunID, generation: UInt64, index: Int, stepID: String) throws -> StepRecord {
         try transaction {
             guard var record = try load(id: runID, includePayloads: false) else { throw FlowRunError.runNotFound(runID) }
@@ -143,6 +153,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Atomically records a failed checkpoint attempt.
     public func recordStepFailure(runID: RunID, generation: UInt64, index: Int, failure: FailureRecord) throws -> StepRecord {
         try transaction {
             guard var record = try load(id: runID, includePayloads: false) else { throw FlowRunError.runNotFound(runID) }
@@ -153,6 +164,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Atomically saves a completed checkpoint output.
     public func completeStep(runID: RunID, generation: UInt64, index: Int, output: Data) throws -> StepRecord {
         try transaction {
             guard var record = try load(id: runID, includePayloads: false) else { throw FlowRunError.runNotFound(runID) }
@@ -163,6 +175,7 @@ public actor SQLiteWorkflowPersistence: WorkflowPersistence {
         }
     }
 
+    /// Atomically transitions a run to a valid terminal state.
     public func finishRun(runID: RunID, generation: UInt64, status: RunStatus, output: Data?, failure: FailureRecord?) throws {
         try transaction {
             guard var record = try load(id: runID, includePayloads: false) else { throw FlowRunError.runNotFound(runID) }

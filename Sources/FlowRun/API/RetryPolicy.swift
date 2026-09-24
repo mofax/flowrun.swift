@@ -1,8 +1,12 @@
 import Foundation
 
+/// Determines how long FlowRun waits after a retryable step failure.
 public enum BackoffStrategy: Sendable, Equatable {
+    /// Retry without waiting.
     case immediate
+    /// Wait the same duration after every failed attempt.
     case fixed(Duration)
+    /// Increase delay from an initial value, bounded by a maximum.
     case exponential(initial: Duration, multiplier: Int, maximum: Duration)
 
     /// Delay after the given numbered failure, starting at 1.
@@ -39,16 +43,22 @@ public enum BackoffStrategy: Sendable, Equatable {
     }
 }
 
+/// Configures retry attempts for one checkpointed step.
 public struct RetryPolicy: Sendable, Equatable {
     /// Number of additional attempts after the first execution.
     public let retries: Int
     public let backoff: BackoffStrategy
 
+    /// Creates a policy with additional retry attempts and a waiting strategy.
+    ///
+    /// Validation occurs when a step starts; negative retry counts and invalid
+    /// backoff values cause ``FlowRunError/invalidRetryPolicy``.
     public init(retries: Int = 0, backoff: BackoffStrategy = .immediate) {
         self.retries = retries
         self.backoff = backoff
     }
 
+    /// A policy that makes one attempt and does not retry.
     public static let none = RetryPolicy()
 
     func validate() throws {

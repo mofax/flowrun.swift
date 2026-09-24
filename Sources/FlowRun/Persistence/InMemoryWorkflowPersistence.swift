@@ -4,8 +4,10 @@ import Foundation
 public actor InMemoryWorkflowPersistence: WorkflowPersistence {
     private var runs: [RunID: RunRecord] = [:]
 
+    /// Creates an empty, transient persistence store.
     public init() {}
 
+    /// Atomically stores a new run in memory.
     public func createRun(_ record: RunRecord) throws -> RunRecord {
         guard runs[record.id] == nil else { throw FlowRunError.runAlreadyExists(record.id) }
         try RunTransition.validateNew(record)
@@ -13,8 +15,10 @@ public actor InMemoryWorkflowPersistence: WorkflowPersistence {
         return record
     }
 
+    /// Returns an in-memory run record, if present.
     public func loadRun(id: RunID) -> RunRecord? { runs[id] }
 
+    /// Claims a suspended in-memory run for a matching workflow identifier.
     public func claimSuspendedRun(id: RunID, workflowID: String) throws -> RunRecord {
         var record = try existing(id)
         try RunTransition.claim(&record, workflowID: workflowID, now: Date())
@@ -22,12 +26,14 @@ public actor InMemoryWorkflowPersistence: WorkflowPersistence {
         return record
     }
 
+    /// Updates the heartbeat for the current run owner.
     public func heartbeat(runID: RunID, generation: UInt64) throws {
         var record = try existing(runID)
         try RunTransition.heartbeat(&record, generation: generation, now: Date())
         runs[runID] = record
     }
 
+    /// Marks stale running records as timed out.
     public func timeoutStaleRuns(before cutoff: Date) throws -> [RunID] {
         var timedOut: [RunID] = []
         for id in runs.keys {
@@ -40,6 +46,7 @@ public actor InMemoryWorkflowPersistence: WorkflowPersistence {
         return timedOut
     }
 
+    /// Starts the next or interrupted checkpoint.
     public func startStep(
         runID: RunID, generation: UInt64, index: Int, stepID: String
     ) throws -> StepRecord {
@@ -51,6 +58,7 @@ public actor InMemoryWorkflowPersistence: WorkflowPersistence {
         return step
     }
 
+    /// Records a failed checkpoint attempt.
     public func recordStepFailure(
         runID: RunID, generation: UInt64, index: Int, failure: FailureRecord
     ) throws -> StepRecord {
@@ -62,6 +70,7 @@ public actor InMemoryWorkflowPersistence: WorkflowPersistence {
         return step
     }
 
+    /// Saves a successful checkpoint output.
     public func completeStep(runID: RunID, generation: UInt64, index: Int, output: Data) throws -> StepRecord {
         var record = try existing(runID)
         let step = try RunTransition.completeStep(
@@ -71,6 +80,7 @@ public actor InMemoryWorkflowPersistence: WorkflowPersistence {
         return step
     }
 
+    /// Moves a run to a valid terminal state.
     public func finishRun(
         runID: RunID, generation: UInt64, status: RunStatus, output: Data?, failure: FailureRecord?
     ) throws {

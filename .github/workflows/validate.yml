@@ -1,0 +1,23 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  test-and-document:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Show Swift version
+        run: swift --version
+      - name: Test
+        run: swift test
+      - name: Validate documentation
+        run: |
+          docs_output="$(mktemp -d "$RUNNER_TEMP/flowrun-docc.XXXXXX")"
+          swift package --allow-writing-to-directory "$docs_output" generate-documentation \
+            --target FlowRun \
+            --analyze \
+            --warnings-as-errors \
+            --output-path "$docs_output"
