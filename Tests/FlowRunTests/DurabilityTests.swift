@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import FlowRun
 
@@ -165,6 +166,34 @@ private func temporaryDatabaseURL() throws -> (directory: URL, file: URL) {
     return (directory, directory.appendingPathComponent("runs.sqlite"))
 }
 
+private func executeSQLite(url: URL, sql: String) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let database else {
+        throw FlowRunError.persistenceFailed("Cannot open test database")
+    }
+    defer { sqlite3_close(database) }
+    guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+        throw FlowRunError.persistenceFailed(String(cString: sqlite3_errmsg(database)))
+    }
+}
+
+private func sqliteScalarInt(url: URL, sql: String) throws -> Int {
+    var database: OpaquePointer?
+    guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let database else {
+        throw FlowRunError.persistenceFailed("Cannot open test database")
+    }
+    defer { sqlite3_close(database) }
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+        throw FlowRunError.persistenceFailed(String(cString: sqlite3_errmsg(database)))
+    }
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+        throw FlowRunError.persistenceFailed(String(cString: sqlite3_errmsg(database)))
+    }
+    return Int(sqlite3_column_int64(statement, 0))
+}
+
 @Test func sharedRunnerConfiguresOnceAndRunsConcurrently() async throws {
     let runner = Runner.shared
     let unconfigured = await capture { try await runner.snapshot(id: RunID()) }
@@ -260,6 +289,41 @@ private func temporaryDatabaseURL() throws -> (directory: URL, file: URL) {
     #expect(try requireFailure(wrong) as? FlowRunError == .workflowMismatch(
         expected: DurableNumberWorkflow.identifier, actual: OtherNumberWorkflow.identifier
     ))
+}
+
+@Test func sqliteStoresCheckpointPayloadsSeparatelyWithoutRewritingHistory() async throws {
+    let location = try temporaryDatabaseURL()
+    defer { try? FileManager.default.removeItem(at: location.directory) }
+    let store = try SQLiteWorkflowPersistence(url: location.file)
+    let id = RunID()
+    let payload = Data(repeating: 0xA5, count: 1_000_000)
+
+    _ = try await store.createRun(RunRecord(id: id, workflowID: "tests.sqlite-payload", input: Data("1".utf8)))
+    _ = try await store.startStep(runID: id, generation: 1, index: 0, stepID: "large")
+    _ = try await store.completeStep(runID: id, generation: 1, index: 0, output: payload)
+
+    #expect(try sqliteScalarInt(
+        url: location.file,
+        sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'run_steps'"
+    ) == 1)
+    #expect(try sqliteScalarInt(
+        url: location.file,
+        sql: "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'record'"
+    ) == 0)
+
+    try executeSQLite(url: location.file, sql: """
+        CREATE TRIGGER reject_checkpoint_output_rewrite
+        BEFORE UPDATE OF output ON run_steps
+        BEGIN
+            SELECT RAISE(ABORT, 'checkpoint output rewritten');
+        END
+        """)
+
+    try await store.heartbeat(runID: id, generation: 1)
+    _ = try await store.startStep(runID: id, generation: 1, index: 1, stepID: "next")
+    let record = try #require(await store.loadRun(id: id))
+    #expect(record.steps[0].output == payload)
+    #expect(record.steps[1].output == nil)
 }
 
 @Test func sqliteConnectionsGrantOnlyOneSuspendedClaim() async throws {
